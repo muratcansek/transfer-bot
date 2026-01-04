@@ -3,10 +3,10 @@ import os
 import requests
 import time
 from xml.etree import ElementTree
+import urllib.parse
 
-# --- AYARLAR VE BAĞLANTI ---
+# --- TWITTER BAĞLANTISI ---
 def baglan():
-    # .env dosyasından veya sistem değişkenlerinden gelen anahtarlar
     return tweepy.Client(
         bearer_token=os.environ.get("TWITTER_BEARER_TOKEN"),
         consumer_key=os.environ.get("TWITTER_API_KEY"),
@@ -16,64 +16,69 @@ def baglan():
     )
 
 def haber_tara():
-    # Takım ismini burada belirle (veya sistem değişkeninden al)
     hedef_takim = os.getenv("SECILEN_TAKIM", "Fenerbahçe")
     client = baglan()
+    paylasildi_mi = False
 
-    # --- KAYNAK HAVUZU ---
-    # Hem web sitelerini hem de takip etmek istediğin Twitter hesaplarını ekliyoruz.
-    # Twitter hesapları için 'xcancel.com' veya 'nitter.poast.org' gibi çalışan köprüleri kullanıyoruz.
+    # --- GÜNCEL KAYNAK HAVUZU ---
+    # Not: Nitter (X köprüleri) bazen IP engeli yiyebilir, bu yüzden en stabil olanları ekledim.
     kaynaklar = [
-        # Web Siteleri
-        {"ad": "TRT Spor", "url": "https://www.trtspor.com.tr/haber-akisi.rss"},
-        {"ad": "A Spor", "url": "https://www.aspor.com.tr/rss/ana-sayfa.xml"},
-        
-        # Twitter Hesapları (Nitter/XCancel üzerinden)
-        # Örnek: Yağız Sabuncuoğlu (@yagosabuncuoglu) takibi için:
-        {"ad": "Yağız Sabuncuoğlu (X)", "url": "https://xcancel.com/yagosabuncuoglu/rss"},
-        {"ad": "Fabrizio Romano (X)", "url": "https://xcancel.com/FabrizioRomano/rss"},
-        {"ad": "Transfer Merkezi (X)", "url": "https://xcancel.com/transfermerkez/rss"}
+        {"ad": "TRT Spor Transfer", "url": "https://www.trtspor.com.tr/transfer-haberleri.rss"},
+        {"ad": "Fanatik", "url": "https://www.fanatik.com.tr/fenerbahce/rss"},
+        {"ad": "Fotomaç", "url": "https://www.fotomac.com.tr/rss/fenerbahce.xml"},
+        {"ad": "Yağız Sabuncuoğlu (X)", "url": "https://nitter.poast.org/yagosabuncuoglu/rss"},
+        {"ad": "Nexus Sports (X)", "url": "https://nitter.poast.org/nexussportstv/rss"}
     ]
 
-    print(f"🔄 {hedef_takim} haberleri için {len(kaynaklar)} kaynak taranıyor...")
+    print(f"🔄 {hedef_takim} haberleri için tarama başlıyor...")
 
+    # 1. ADIM: Spesifik Kaynakları Tara
     for kaynak in kaynaklar:
         try:
-            # Botun gerçek bir kullanıcı gibi görünmesi için Header ekliyoruz
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-            response = requests.get(kaynak["url"], headers=headers, timeout=15)
+            headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'}
+            response = requests.get(kaynak["url"], headers=headers, timeout=10)
             
             if response.status_code != 200:
-                print(f"❌ {kaynak['ad']} kaynağına erişilemedi (Kod: {response.status_code})")
                 continue
 
             root = ElementTree.fromstring(response.content)
-            
-            # Kaynaktaki son 5 öğeyi kontrol et
             for item in root.findall('./channel/item')[:5]:
                 baslik = item.find('title').text
                 link = item.find('link').text
                 
-                # Arama Filtresi: Hem takım ismi hem de 'transfer' veya 'sıcak' gibi kelimeler geçiyor mu?
-                # (Sadece takım ismi geçmesi yeterli dersen 'and' kısmını silebilirsin)
+                # Filtreleme
                 if hedef_takim.lower() in baslik.lower():
-                    tweet_metni = (
-                        f"🚨 {hedef_takim.upper()} SON DAKİKA\n\n"
-                        f"{baslik}\n\n"
-                        f"📍 Kaynak: {kaynak['ad']}\n"
-                        f"🔗 {link}"
-                    )
-                    
-                    # Tweet atma işlemi
+                    tweet_metni = f"🚨 {hedef_takim.upper()} SON DAKİKA\n\n{baslik}\n\n📍 Kaynak: {kaynak['ad']}\n🔗 {link}"
                     client.create_tweet(text=tweet_metni)
-                    print(f"✅ Paylaşıldı: {baslik[:50]}...")
-                    
-                    # Twitter API sınırlarına takılmamak ve flood yapmamak için 10 saniye bekle
-                    time.sleep(10)
-                    return # Her çalıştığında sadece en güncel 1 haberi paylaşması için
+                    print(f"✅ Paylaşıldı: {kaynak['ad']}")
+                    paylasildi_mi = True
+                    return # Bir tane bulunca dur
 
         except Exception as e:
-            print(f"⚠️ {kaynak['ad']} taranırken bir hata oluştu: {e}")
+            print(f"⚠️ {kaynak['ad']} taranırken hata oluştu, sıradakine geçiliyor...")
+
+    # 2. ADIM: Yedek Plan (Google News)
+    # Eğer yukarıdaki kaynaklar hata verirse veya haber bulamazsa burası devreye girer.
+    if not paylasildi_mi:
+        print("🔍 Spesifik kaynaklarda haber bulunamadı, Google News taranıyor...")
+        try:
+            sorgu = urllib.parse.quote(f"{hedef_takim} transfer")
+            google_url = f"https://news.google.com/rss/search?q={sorgu}&hl=tr&gl=TR&ceid=TR:tr"
+            
+            response = requests.get(google_url, timeout=10)
+            root = ElementTree.fromstring(response.content)
+            item = root.find('./channel/item')
+            
+            if item is not None:
+                baslik = item.find('title').text
+                link = item.find('link').text
+                tweet_metni = f"🚨 {hedef_takim.upper()} HABERİ\n\n{baslik}\n\n📍 Kaynak: Google News\n🔗 {link}"
+                client.create_tweet(text=tweet_metni)
+                print("✅ Google News üzerinden paylaşıldı.")
+            else:
+                print("❌ Hiçbir kaynakta yeni haber bulunamadı.")
+        except Exception as e:
+            print(f"⚠️ Yedek plan da başarısız oldu: {e}")
 
 if __name__ == "__main__":
     haber_tara()
