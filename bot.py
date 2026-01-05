@@ -5,10 +5,9 @@ import time
 from xml.etree import ElementTree
 import urllib.parse
 
-# --- TWITTER BAĞLANTISI ---
 def baglan():
+    # 403 hatalarını önlemek için en stabil bağlantı yöntemi
     return tweepy.Client(
-        bearer_token=os.environ.get("TWITTER_BEARER_TOKEN"),
         consumer_key=os.environ.get("TWITTER_API_KEY"),
         consumer_secret=os.environ.get("TWITTER_API_SECRET"),
         access_token=os.environ.get("TWITTER_ACCESS_TOKEN"),
@@ -16,12 +15,17 @@ def baglan():
     )
 
 def haber_tara():
-    hedef_takim = os.getenv("SECILEN_TAKIM", "Fenerbahçe")
+    # 1. ŞALTER KONTROLÜ (En başta)
+    salter = os.environ.get("BOT_DURUMU", "ACIK").upper()
+    if salter == "KAPALI":
+        print("⛔ BOT DURDURULDU: GitHub Secrets üzerinden BOT_DURUMU 'KAPALI' olarak ayarlanmış.")
+        return
+
+    hedef_takim = os.environ.get("SECILEN_TAKIM", "Fenerbahçe")
     client = baglan()
     paylasildi_mi = False
 
-    # --- GÜNCEL KAYNAK HAVUZU ---
-    # Not: Nitter (X köprüleri) bazen IP engeli yiyebilir, bu yüzden en stabil olanları ekledim.
+    # 2. KAYNAK LİSTESİ
     kaynaklar = [
         {"ad": "TRT Spor Transfer", "url": "https://www.trtspor.com.tr/transfer-haberleri.rss"},
         {"ad": "Fanatik", "url": "https://www.fanatik.com.tr/fenerbahce/rss"},
@@ -30,12 +34,12 @@ def haber_tara():
         {"ad": "Nexus Sports (X)", "url": "https://nitter.poast.org/nexussportstv/rss"}
     ]
 
-    print(f"🔄 {hedef_takim} haberleri için tarama başlıyor...")
+    print(f"🔄 {hedef_takim} için tarama başladı (Şalter: {salter})...")
 
-    # 1. ADIM: Spesifik Kaynakları Tara
+    # 3. KAYNAKLARI TEK TEK GEZ
     for kaynak in kaynaklar:
         try:
-            headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'}
+            headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'}
             response = requests.get(kaynak["url"], headers=headers, timeout=10)
             
             if response.status_code != 200:
@@ -46,25 +50,22 @@ def haber_tara():
                 baslik = item.find('title').text
                 link = item.find('link').text
                 
-                # Filtreleme
                 if hedef_takim.lower() in baslik.lower():
                     tweet_metni = f"🚨 {hedef_takim.upper()} SON DAKİKA\n\n{baslik}\n\n📍 Kaynak: {kaynak['ad']}\n🔗 {link}"
                     client.create_tweet(text=tweet_metni)
                     print(f"✅ Paylaşıldı: {kaynak['ad']}")
                     paylasildi_mi = True
-                    return # Bir tane bulunca dur
+                    return 
 
         except Exception as e:
-            print(f"⚠️ {kaynak['ad']} taranırken hata oluştu, sıradakine geçiliyor...")
+            print(f"⚠️ {kaynak['ad']} kaynağında hata oluştu.")
 
-    # 2. ADIM: Yedek Plan (Google News)
-    # Eğer yukarıdaki kaynaklar hata verirse veya haber bulamazsa burası devreye girer.
+    # 4. YEDEK PLAN (GOOGLE NEWS)
     if not paylasildi_mi:
-        print("🔍 Spesifik kaynaklarda haber bulunamadı, Google News taranıyor...")
+        print("🔍 Spesifik kaynaklarda sonuç yok, Google News'e bakılıyor...")
         try:
             sorgu = urllib.parse.quote(f"{hedef_takim} transfer")
             google_url = f"https://news.google.com/rss/search?q={sorgu}&hl=tr&gl=TR&ceid=TR:tr"
-            
             response = requests.get(google_url, timeout=10)
             root = ElementTree.fromstring(response.content)
             item = root.find('./channel/item')
@@ -72,13 +73,10 @@ def haber_tara():
             if item is not None:
                 baslik = item.find('title').text
                 link = item.find('link').text
-                tweet_metni = f"🚨 {hedef_takim.upper()} HABERİ\n\n{baslik}\n\n📍 Kaynak: Google News\n🔗 {link}"
-                client.create_tweet(text=tweet_metni)
+                client.create_tweet(text=f"🚨 {hedef_takim.upper()} HABERİ\n\n{baslik}\n\n📍 Kaynak: Google News\n🔗 {link}")
                 print("✅ Google News üzerinden paylaşıldı.")
-            else:
-                print("❌ Hiçbir kaynakta yeni haber bulunamadı.")
         except Exception as e:
-            print(f"⚠️ Yedek plan da başarısız oldu: {e}")
+            print(f"⚠️ Google News yedeği de başarısız: {e}")
 
 if __name__ == "__main__":
     haber_tara()
