@@ -2,8 +2,8 @@ name: Transfer Bot Run
 
 on:
   schedule:
-    - cron: '0 * * * *' # Her saat başı otomatik kontrol
-  workflow_dispatch: # İŞTE BURASI ARAYÜZÜ OLUŞTURUR
+    - cron: '*/30 * * * *' # Her 30 dakikada bir otomatik çalışır
+  workflow_dispatch: # Manuel çalıştırma butonu ve takım seçimi
     inputs:
       secilen_takim:
         description: 'Hangi takım için haber aransın?'
@@ -15,15 +15,6 @@ on:
           - Galatasaray
           - Beşiktaş
           - Trabzonspor
-      haber_sayisi:
-        description: 'Kaç tane haber kontrol edilsin?'
-        required: true
-        default: '5'
-        type: choice
-        options:
-          - '5'
-          - '10'
-          - '20'
 
 jobs:
   build:
@@ -47,6 +38,6 @@ jobs:
           TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
           TWITTER_ACCESS_TOKEN_SECRET: ${{ secrets.TWITTER_ACCESS_TOKEN_SECRET }}
           TWITTER_BEARER_TOKEN: ${{ secrets.TWITTER_BEARER_TOKEN }}
-          SECILEN_TAKIM: ${{ github.event.inputs.secilen_takim }}
-          HABER_SAYISI: ${{ github.event.inputs.haber_sayisi }}
+          SECILEN_TAKIM: ${{ github.event.inputs.secilen_takim || 'Fenerbahçe' }}
+          BOT_DURUMU: ${{ secrets.BOT_DURUMU }} # AÇ/KAPAT ŞALTERİ
         run: python bot.py
