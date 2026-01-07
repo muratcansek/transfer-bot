@@ -6,11 +6,11 @@ from xml.etree import ElementTree
 import urllib.parse
 from google import genai
 
-# --- 2026 MODEL YAPILANDIRMASI ---
-# Gemini 2.5 Flash ücretsiz kota: Dakikada 5 istek.
+# --- YAPILANDIRMA ---
 client_ai = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
 def baglan():
+    # Eğer ön izleme modundaysak Twitter anahtarlarını kontrol etmeye bile gerek yok
     return tweepy.Client(
         consumer_key=os.environ.get("TWITTER_API_KEY"),
         consumer_secret=os.environ.get("TWITTER_API_SECRET"),
@@ -19,41 +19,25 @@ def baglan():
     )
 
 def analyze_and_write(haber_basligi, takim):
-    """Kota dostu analiz fonksiyonu."""
-    
-    # 1. ÖN FİLTRE: Haber başlığında takım adı geçmiyorsa Gemini'yi yorma (Kota tasarrufu)
+    # Ön filtre: Takım adı geçmiyorsa kotayı harcama
     if takim.lower() not in haber_basligi.lower():
         return None
 
-    prompt = f"""
-    Sen bir spor editörüsün. Sadece Türkçe konuş.
-    Haber: "{haber_basligi}"
-    Bu haber gerçekten {takim} transferi/haberi mi?
-    - Eğer değilse sadece 'SKIP' yaz.
-    - Eğer ilgiliyse, haberi Türkçeye çevir ve taraftarlar için heyecanlı bir tweet yaz (max 200 karakter).
-    """
+    prompt = f"Sen bir spor editörüsün. Sadece Türkçe konuş. Haber: '{haber_basligi}'. Bu gerçekten {takim} haberi mi? Değilse 'SKIP' yaz, ilgiliyse heyecanlı bir Türkçe tweet yaz."
     
     try:
-        # 2026'nın güncel model ismi: gemini-2.5-flash
-        response = client_ai.models.generate_content(
-            model="gemini-2.5-flash", 
-            contents=prompt
-        )
-        
+        response = client_ai.models.generate_content(model="gemini-1.5-flash", contents=prompt)
         result = response.text.strip()
-        if "SKIP" in result or len(result) < 10:
-            return None
-            
+        if "SKIP" in result or len(result) < 10: return None
         return result
-
     except Exception as e:
-        print(f"⚠️ Gemini Kota/Hız Sınırı: {e}")
-        # Hata 429 ise biraz daha beklemesi için sinyal veriyoruz
-        time.sleep(35) 
+        print(f"⚠️ AI Hatası: {e}")
         return None
 
 def haber_tara():
     salter = os.environ.get("BOT_DURUMU", "ACIK").upper()
+    test_modu = os.environ.get("TEST_MODU", "Ön İzleme (Tweet Atma)")
+    
     if salter == "KAPALI": return
 
     try:
@@ -62,14 +46,19 @@ def haber_tara():
         limit = 1
 
     takimlar = ["Fenerbahçe", "Galatasaray", "Beşiktaş", "Trabzonspor"]
-    twitter_client = baglan()
+    
+    # Sadece 'Gerçekten Paylaş' seçilirse Twitter'a bağlan
+    twitter_client = None
+    if test_modu == "Gerçekten Paylaş":
+        twitter_client = baglan()
+        print("🚀 GERÇEK MOD: Tweetler Twitter'a gönderilecek.")
+    else:
+        print("🔬 ÖN İZLEME MODU: Tweetler sadece loglara yazılacak.")
 
     for takim in takimlar:
-        print(f"🔄 {takim} inceleniyor...")
+        print(f"\n--- {takim} Taraması Başladı ---")
         sorgu = urllib.parse.quote(f"{takim} transfer news")
         url = f"https://news.google.com/rss/search?q={sorgu}&hl=en-US&gl=US&ceid=US:en"
-        
-        paylasilan_sayisi = 0
         
         try:
             headers = {'User-Agent': 'Mozilla/5.0'}
@@ -77,35 +66,40 @@ def haber_tara():
             root = ElementTree.fromstring(response.content)
             items = root.findall('./channel/item')
 
+            paylasilan_sayisi = 0
             for item in items:
-                if paylasilan_sayisi >= limit:
-                    break
+                if paylasilan_sayisi >= limit: break
 
                 baslik = item.find('title').text
                 link = item.find('link').text
                 
-                # Gemini'ye sormadan önce bekle (Dakikada 5 sınırı için)
-                print("⏳ AI analizi için bekleniyor...")
-                time.sleep(15) 
+                print(f"🔎 Analiz ediliyor: {baslik[:50]}...")
+                time.sleep(12) # AI Kota koruması (429 önleyici)
                 
                 tweet_metni = analyze_and_write(baslik, takim)
                 
                 if tweet_metni:
-                    try:
-                        tweet_final = f"{tweet_metni}\n\n🔗 {link}"
-                        twitter_client.create_tweet(text=tweet_final)
-                        print(f"✅ {takim} paylaşıldı.")
-                        paylasilan_sayisi += 1
-                        # Twitter limiti için bekle
-                        time.sleep(20)
-                    except Exception as te:
-                        if "429" in str(te):
-                            print("❌ Twitter günlük tweet sınırına ulaşıldı!")
-                            return # Twitter sınırı dolduysa botu tamamen durdur
-                        print(f"❌ Twitter Hatası: {te}")
+                    tweet_final = f"{tweet_metni}\n\n🔗 {link}"
+                    
+                    if test_modu == "Gerçekten Paylaş":
+                        try:
+                            twitter_client.create_tweet(text=tweet_final)
+                            print(f"✅ TWEET ATILDI: {takim}")
+                        except Exception as te:
+                            print(f"❌ Twitter Hatası: {te}")
+                    else:
+                        # ÖN İZLEME TASARIMI
+                        print("\n" + "="*40)
+                        print(f"📝 TWEET ÖN İZLEME ({takim})")
+                        print("-" * 40)
+                        print(tweet_final)
+                        print("="*40 + "\n")
+                    
+                    paylasilan_sayisi += 1
+                    time.sleep(10)
                 
         except Exception as e:
-            print(f"⚠️ RSS Hatası ({takim}): {e}")
+            print(f"⚠️ Hata: {e}")
 
 if __name__ == "__main__":
     haber_tara()
