@@ -2,17 +2,25 @@ name: AI World Transfer Editor 2026
 
 on:
   schedule:
-    - cron: '0 */2 * * *' # Sınırları aşmamak için 2 saatte bir çalışması daha sağlıklıdır
+    - cron: '0 */2 * * *'
   workflow_dispatch:
     inputs:
       haber_sayisi:
-        description: 'Her takım için kaç haber (Kota dostu: 1)'
+        description: 'Her takım için haber sayısı'
         required: true
         default: '1'
         type: choice
         options: 
           - '1'
           - '2'
+      test_modu:
+        description: 'Twittera gönderilsin mi?'
+        required: true
+        default: 'Ön İzleme (Tweet Atma)'
+        type: choice
+        options:
+          - 'Ön İzleme (Tweet Atma)'
+          - 'Gerçekten Paylaş'
 
 jobs:
   build:
@@ -38,4 +46,5 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           BOT_DURUMU: ${{ secrets.BOT_DURUMU }}
           HABER_SAYISI: ${{ github.event.inputs.haber_sayisi || '1' }}
+          TEST_MODU: ${{ github.event.inputs.test_modu }}
         run: python bot.py
