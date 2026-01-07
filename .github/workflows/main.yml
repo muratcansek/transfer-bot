@@ -27,8 +27,9 @@ jobs:
         with:
           python-version: '3.10'
 
+      # DİKKAT: Burayı değiştirdik, eski sağlam kütüphaneye döndük
       - name: Install dependencies
-        run: pip install tweepy requests google-genai
+        run: pip install tweepy requests google-generativeai
 
       - name: Run bot
         env:
