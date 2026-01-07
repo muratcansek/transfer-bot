@@ -6,6 +6,7 @@ from xml.etree import ElementTree
 import urllib.parse
 from google import genai
 
+# --- AI YAPILANDIRMASI ---
 client_ai = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
 def baglan():
@@ -16,19 +17,45 @@ def baglan():
         access_token_secret=os.environ.get("TWITTER_ACCESS_TOKEN_SECRET")
     )
 
-def ai_editor_yorumu(haber_basligi, takim):
-    prompt = f"Sen profesyonel bir Türk spor editörüsün. Şu yabancı haberi Türkçeye çevir ve {takim} taraftarları için etkileyici, kısa bir tweet yaz: {haber_basligi}"
+def analyze_and_write(haber_basligi, takim):
+    """
+    Bu fonksiyon iki iş yapar:
+    1. Haberin gerçekten o takımla ilgili olup olmadığını kontrol eder.
+    2. İlgiliyse Türkçe tweet yazar, değilse 'SKIP' döndürür.
+    """
+    prompt = f"""
+    Görevin bir editör ve filtreleyici olmak.
+    Haber Başlığı (İngilizce olabilir): "{haber_basligi}"
+    Hedef Takım: {takim}
+
+    Adımlar:
+    1. Bu haberin ana konusu gerçekten {takim} veya {takim}'ın bir oyuncusu/transferi mi?
+    2. Eğer haber başka bir takım hakkındaysa (ve {takim} sadece yan unsur ise) cevap olarak sadece "SKIP" yaz.
+    3. Eğer haber {takim} hakkındaysa: Bunu mükemmel bir Türkçe ile, taraftarı heyecanlandıran, emojili bir tweet metnine çevir.
+    4. KESİNLİKLE İngilizce kelime kullanma. Sadece Türkçe tweet metnini ver.
+    """
+    
     try:
-        response = client_ai.models.generate_content(model="gemini-1.5-flash", contents=prompt)
-        return response.text.strip().replace('"', '')
-    except:
-        return f"🚨 {takim} Gelişmesi: {haber_basligi}"
+        response = client_ai.models.generate_content(
+            model="gemini-1.5-flash",
+            contents=prompt
+        )
+        result = response.text.strip().replace('"', '')
+        
+        # AI "SKIP" dediyse veya İngilizce bir çıktı verdiyse (kontrol amaçlı)
+        if "SKIP" in result or len(result) < 10:
+            return None
+            
+        return result
+    except Exception as e:
+        print(f"AI Analiz Hatası: {e}")
+        return None # Hata durumunda İngilizce atmaktansa hiç atmayalım.
 
 def haber_tara():
     salter = os.environ.get("BOT_DURUMU", "ACIK").upper()
     if salter == "KAPALI": return
 
-    # Kutucuğa yazılan sayıyı alıyoruz (Hata olmasın diye sayıya çeviriyoruz)
+    # Arayüzden gelen sayı (varsayılan 1)
     try:
         limit = int(os.environ.get("HABER_SAYISI", "1"))
     except:
@@ -38,31 +65,46 @@ def haber_tara():
     twitter_client = baglan()
 
     for takim in takimlar:
-        print(f"🌍 {takim} için {limit} adet haber aranıyor...")
-        sorgu = urllib.parse.quote(f"{takim} transfer news rumours")
+        print(f"🌍 {takim} için analiz başladı ({limit} haber)...")
+        
+        # Genişletilmiş arama sorgusu
+        sorgu = urllib.parse.quote(f"{takim} transfer news")
         url = f"https://news.google.com/rss/search?q={sorgu}&hl=en-US&gl=US&ceid=US:en"
+        
+        paylasilan_sayisi = 0
         
         try:
             headers = {'User-Agent': 'Mozilla/5.0'}
             response = requests.get(url, headers=headers, timeout=10)
             root = ElementTree.fromstring(response.content)
-            
-            # Kaynaktaki haberleri senin seçtiğin limit kadar alıyoruz
-            haberler = root.findall('./channel/item')[:limit]
-            
-            for item in haberler:
+            items = root.findall('./channel/item')
+
+            for item in items:
+                # Eğer istenen limit kadar paylaştıysak diğer takıma geç
+                if paylasilan_sayisi >= limit:
+                    break
+
                 baslik = item.find('title').text
                 link = item.find('link').text
                 
-                tweet_metni = ai_editor_yorumu(baslik, takim)
-                tweet_final = f"{tweet_metni}\n\n🔗 Kaynak: {link}"
+                # --- FİLTRE VE YAZIM AŞAMASI ---
+                tweet_metni = analyze_and_write(baslik, takim)
                 
+                # Eğer tweet_metni 'None' geldiyse, bu haber alakasızdır veya hata vardır. Atla.
+                if tweet_metni is None:
+                    print(f"❌ Alakasız veya hatalı haber elendi: {baslik}")
+                    continue 
+
+                # Tweet Gönderimi
+                tweet_final = f"{tweet_metni}\n\n🔗 Kaynak: {link}"
                 twitter_client.create_tweet(text=tweet_final)
-                print(f"✅ {takim} için bir haber paylaşıldı.")
-                time.sleep(15) # Twitter koruması
+                
+                print(f"✅ {takim} haberi Türkçe paylaşıldı.")
+                paylasilan_sayisi += 1
+                time.sleep(15) 
                 
         except Exception as e:
-            print(f"⚠️ {takim} hatası: {e}")
+            print(f"⚠️ {takim} genel hata: {e}")
 
 if __name__ == "__main__":
     haber_tara()
