@@ -4,9 +4,13 @@ import requests
 import time
 from xml.etree import ElementTree
 import urllib.parse
+import google.generativeai as genai
+
+# --- YAPILANDIRMA ---
+genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+ai_model = genai.GenerativeModel('gemini-1.5-flash')
 
 def baglan():
-    # 403 hatalarını önlemek için en stabil bağlantı yöntemi
     return tweepy.Client(
         consumer_key=os.environ.get("TWITTER_API_KEY"),
         consumer_secret=os.environ.get("TWITTER_API_SECRET"),
@@ -14,69 +18,72 @@ def baglan():
         access_token_secret=os.environ.get("TWITTER_ACCESS_TOKEN_SECRET")
     )
 
+def ai_editor_yorumu(haber_basligi, takim):
+    """Gemini AI haberi okur ve bir spor editörü gibi yorumlar."""
+    prompt = f"""
+    Sen Türkiye'nin en popüler spor editörlerinden birisin. 
+    Aşağıda gelen haber başlığını oku ve {takim} taraftarlarını heyecanlandıracak, 
+    merak uyandırıcı ve profesyonel bir tweet haline getir. 
+    
+    Kurallar:
+    1. Maksimum 200 karakter olsun.
+    2. Futbol jargonuna uygun emojiler kullan.
+    3. Haberin özünü bozma ama daha çarpıcı yaz.
+    4. Sadece tweet metnini döndür, açıklama yapma.
+
+    Haber Başlığı: {haber_basligi}
+    """
+    try:
+        response = ai_model.generate_content(prompt)
+        return response.text.strip().replace('"', '')
+    except Exception as e:
+        print(f"AI Hatası: {e}")
+        return haber_basligi # Hata olursa orijinal başlığı kullan
+
 def haber_tara():
-    # 1. ŞALTER KONTROLÜ (En başta)
     salter = os.environ.get("BOT_DURUMU", "ACIK").upper()
     if salter == "KAPALI":
-        print("⛔ BOT DURDURULDU: GitHub Secrets üzerinden BOT_DURUMU 'KAPALI' olarak ayarlanmış.")
+        print("⛔ Bot kapalı modda.")
         return
 
-    hedef_takim = os.environ.get("SECILEN_TAKIM", "Fenerbahçe")
+    takimlar = ["Fenerbahçe", "Galatasaray", "Beşiktaş", "Trabzonspor"]
     client = baglan()
-    paylasildi_mi = False
 
-    # 2. KAYNAK LİSTESİ
-    kaynaklar = [
-        {"ad": "TRT Spor Transfer", "url": "https://www.trtspor.com.tr/transfer-haberleri.rss"},
-        {"ad": "Fanatik", "url": "https://www.fanatik.com.tr/fenerbahce/rss"},
-        {"ad": "Fotomaç", "url": "https://www.fotomac.com.tr/rss/fenerbahce.xml"},
-        {"ad": "Yağız Sabuncuoğlu (X)", "url": "https://nitter.poast.org/yagosabuncuoglu/rss"},
-        {"ad": "Nexus Sports (X)", "url": "https://nitter.poast.org/nexussportstv/rss"}
-    ]
-
-    print(f"🔄 {hedef_takim} için tarama başladı (Şalter: {salter})...")
-
-    # 3. KAYNAKLARI TEK TEK GEZ
-    for kaynak in kaynaklar:
+    for takim in takimlar:
+        print(f"🔄 {takim} için dünya basını taranıyor...")
+        
+        # Google News sorgusu: Hem yerel hem global haberleri yakalamak için
+        sorgu = urllib.parse.quote(f"{takim} transfer news")
+        url = f"https://news.google.com/rss/search?q={sorgu}&hl=tr&gl=TR&ceid=TR:tr"
+        
         try:
-            headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'}
-            response = requests.get(kaynak["url"], headers=headers, timeout=10)
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            response = requests.get(url, headers=headers, timeout=10)
+            root = ElementTree.fromstring(response.content)
             
-            if response.status_code != 200:
-                continue
-
-            root = ElementTree.fromstring(response.content)
-            for item in root.findall('./channel/item')[:5]:
-                baslik = item.find('title').text
-                link = item.find('link').text
-                
-                if hedef_takim.lower() in baslik.lower():
-                    tweet_metni = f"🚨 {hedef_takim.upper()} SON DAKİKA\n\n{baslik}\n\n📍 Kaynak: {kaynak['ad']}\n🔗 {link}"
-                    client.create_tweet(text=tweet_metni)
-                    print(f"✅ Paylaşıldı: {kaynak['ad']}")
-                    paylasildi_mi = True
-                    return 
-
-        except Exception as e:
-            print(f"⚠️ {kaynak['ad']} kaynağında hata oluştu.")
-
-    # 4. YEDEK PLAN (GOOGLE NEWS)
-    if not paylasildi_mi:
-        print("🔍 Spesifik kaynaklarda sonuç yok, Google News'e bakılıyor...")
-        try:
-            sorgu = urllib.parse.quote(f"{hedef_takim} transfer")
-            google_url = f"https://news.google.com/rss/search?q={sorgu}&hl=tr&gl=TR&ceid=TR:tr"
-            response = requests.get(google_url, timeout=10)
-            root = ElementTree.fromstring(response.content)
+            # En güncel haberi alıyoruz
             item = root.find('./channel/item')
             
             if item is not None:
                 baslik = item.find('title').text
                 link = item.find('link').text
-                client.create_tweet(text=f"🚨 {hedef_takim.upper()} HABERİ\n\n{baslik}\n\n📍 Kaynak: Google News\n🔗 {link}")
-                print("✅ Google News üzerinden paylaşıldı.")
+                
+                # AI Editör yorumunu al
+                tweet_metni = ai_editor_yorumu(baslik, takim)
+                
+                # Final Tweet: AI Yorumu + Link
+                tweet_final = f"{tweet_metni}\n\n🔗 Kaynak: {link}"
+                
+                client.create_tweet(text=tweet_final)
+                print(f"✅ {takim} tweeti atıldı.")
+                
+                # Twitter'ın spam filtresine takılmamak için bekle
+                time.sleep(15)
+            else:
+                print(f"❓ {takim} için yeni haber bulunamadı.")
+                
         except Exception as e:
-            print(f"⚠️ Google News yedeği de başarısız: {e}")
+            print(f"⚠️ {takim} taranırken hata: {e}")
 
 if __name__ == "__main__":
     haber_tara()
