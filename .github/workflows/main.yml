@@ -6,10 +6,14 @@ on:
   workflow_dispatch:
     inputs:
       haber_sayisi:
-        description: 'Kaç adet haber paylaşılsın?'
+        description: 'Her takım için kaç haber paylaşılsın?'
         required: true
         default: '1'
-        type: string # Buraya kullanıcı sayı yazacak
+        type: choice
+        options: 
+          - '1'
+          - '2'
+          - '3'
 
 jobs:
   build:
@@ -34,6 +38,5 @@ jobs:
           TWITTER_ACCESS_TOKEN_SECRET: ${{ secrets.TWITTER_ACCESS_TOKEN_SECRET }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           BOT_DURUMU: ${{ secrets.BOT_DURUMU }}
-          # Kullanıcının kutucuğa yazdığı sayıyı koda gönderiyoruz:
           HABER_SAYISI: ${{ github.event.inputs.haber_sayisi || '1' }}
         run: python bot.py
