@@ -42,7 +42,7 @@ def analyze_and_write(haber_basligi, takim):
     try:
         # Yeni SDK'da en stabil model çağırma yöntemi
         response = client_ai.models.generate_content(
-            model="gemini-1.5-flash", 
+            model="gemini-2.5-flash", 
             contents=prompt
         )
         
