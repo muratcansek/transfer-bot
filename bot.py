@@ -18,18 +18,18 @@ def baglan():
         access_token_secret=os.environ.get("TWITTER_ACCESS_TOKEN_SECRET")
     )
 
-def ai_editor_yorumu(haber_basligi, takim):
-    """Gemini AI haberi okur ve bir spor editörü gibi yorumlar."""
+def ai_translate_and_edit(haber_basligi, takim):
+    """Gemini AI haberi Türkçeye çevirir ve bir spor editörü gibi yorumlar."""
     prompt = f"""
-    Sen Türkiye'nin en popüler spor editörlerinden birisin. 
-    Aşağıda gelen haber başlığını oku ve {takim} taraftarlarını heyecanlandıracak, 
-    merak uyandırıcı ve profesyonel bir tweet haline getir. 
+    Sen Türkiye'nin en iyi spor editörü ve çevirmenisin. 
+    Aşağıdaki haber başlığı yabancı bir dilde (İngilizce vb.) olabilir.
     
-    Kurallar:
-    1. Maksimum 200 karakter olsun.
-    2. Futbol jargonuna uygun emojiler kullan.
-    3. Haberin özünü bozma ama daha çarpıcı yaz.
-    4. Sadece tweet metnini döndür, açıklama yapma.
+    Görevin:
+    1. Haberi önce anla ve profesyonel bir Türkçeye çevir.
+    2. Çevirdiğin haberi {takim} taraftarları için heyecan verici bir tweet haline getir.
+    3. Maksimum 200 karakter kullan.
+    4. Spor jargonuna uygun emojiler ekle (🚨, ⏳, ✈️, ✍️ gibi).
+    5. Sadece tweet metnini döndür.
 
     Haber Başlığı: {haber_basligi}
     """
@@ -37,8 +37,8 @@ def ai_editor_yorumu(haber_basligi, takim):
         response = ai_model.generate_content(prompt)
         return response.text.strip().replace('"', '')
     except Exception as e:
-        print(f"AI Hatası: {e}")
-        return haber_basligi # Hata olursa orijinal başlığı kullan
+        print(f"AI/Çeviri Hatası: {e}")
+        return haber_basligi
 
 def haber_tara():
     salter = os.environ.get("BOT_DURUMU", "ACIK").upper()
@@ -46,41 +46,41 @@ def haber_tara():
         print("⛔ Bot kapalı modda.")
         return
 
+    # 4 Büyükler
     takimlar = ["Fenerbahçe", "Galatasaray", "Beşiktaş", "Trabzonspor"]
     client = baglan()
 
     for takim in takimlar:
-        print(f"🔄 {takim} için dünya basını taranıyor...")
+        print(f"🌍 {takim} için dünya basını (İngilizce kaynaklar) taranıyor...")
         
-        # Google News sorgusu: Hem yerel hem global haberleri yakalamak için
-        sorgu = urllib.parse.quote(f"{takim} transfer news")
-        url = f"https://news.google.com/rss/search?q={sorgu}&hl=tr&gl=TR&ceid=TR:tr"
+        # İngilizce transfer haberlerini çekmek için sorguyu güncelledik
+        sorgu = urllib.parse.quote(f"{takim} transfer news rumours")
+        # Global Google News (İngilizce) kaynağından çekiyoruz
+        url = f"https://news.google.com/rss/search?q={sorgu}&hl=en-US&gl=US&ceid=US:en"
         
         try:
             headers = {'User-Agent': 'Mozilla/5.0'}
             response = requests.get(url, headers=headers, timeout=10)
             root = ElementTree.fromstring(response.content)
             
-            # En güncel haberi alıyoruz
+            # En güncel global haberi al
             item = root.find('./channel/item')
             
             if item is not None:
                 baslik = item.find('title').text
                 link = item.find('link').text
                 
-                # AI Editör yorumunu al
-                tweet_metni = ai_editor_yorumu(baslik, takim)
+                # Gemini ile Çeviri + Editör Yorumu
+                tweet_metni = ai_translate_and_edit(baslik, takim)
                 
-                # Final Tweet: AI Yorumu + Link
                 tweet_final = f"{tweet_metni}\n\n🔗 Kaynak: {link}"
                 
                 client.create_tweet(text=tweet_final)
-                print(f"✅ {takim} tweeti atıldı.")
+                print(f"✅ {takim} haberi çevrildi ve tweetlendi.")
                 
-                # Twitter'ın spam filtresine takılmamak için bekle
-                time.sleep(15)
+                time.sleep(15) # Twitter sınırı için bekleme
             else:
-                print(f"❓ {takim} için yeni haber bulunamadı.")
+                print(f"❓ {takim} için dünya basınında yeni haber yok.")
                 
         except Exception as e:
             print(f"⚠️ {takim} taranırken hata: {e}")
