@@ -1,9 +1,9 @@
-name: AI Transfer Editor Bot
+name: AI World Transfer Editor
 
 on:
   schedule:
     - cron: '0 * * * *' # Her saat başı otomatik çalışır
-  workflow_dispatch: # Manuel çalıştırma imkanı
+  workflow_dispatch: # Manuel çalıştırma butonu
 
 jobs:
   build:
@@ -15,10 +15,10 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v2
         with:
-          python-version: '3.9'
+          python-version: '3.10'
 
       - name: Install dependencies
-        run: pip install tweepy requests google-generativeai
+        run: pip install tweepy requests google-genai
 
       - name: Run bot
         env:
