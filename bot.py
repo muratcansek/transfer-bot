@@ -19,9 +19,8 @@ def baglan():
 
 def analyze_and_write(haber_basligi, takim):
     """
-    Bu fonksiyon iki iş yapar:
-    1. Haberin gerçekten o takımla ilgili olup olmadığını kontrol eder.
-    2. İlgiliyse Türkçe tweet yazar, değilse 'SKIP' döndürür.
+    Haberi analiz eder ve Türkçe tweet yazar.
+    404 hatasını önlemek için yedekli model sistemi kullanır.
     """
     prompt = f"""
     Görevin bir editör ve filtreleyici olmak.
@@ -35,27 +34,35 @@ def analyze_and_write(haber_basligi, takim):
     4. KESİNLİKLE İngilizce kelime kullanma. Sadece Türkçe tweet metnini ver.
     """
     
-    try:
-        response = client_ai.models.generate_content(
-            model="gemini-1.5-flash",
-            contents=prompt
-        )
-        result = response.text.strip().replace('"', '')
-        
-        # AI "SKIP" dediyse veya İngilizce bir çıktı verdiyse (kontrol amaçlı)
-        if "SKIP" in result or len(result) < 10:
-            return None
+    # Denenecek modeller listesi (Biri çalışmazsa diğerine geçer)
+    modeller = ["gemini-1.5-flash-002", "gemini-1.5-flash-001", "gemini-1.5-pro"]
+    
+    for model_ismi in modeller:
+        try:
+            response = client_ai.models.generate_content(
+                model=model_ismi,
+                contents=prompt
+            )
+            result = response.text.strip().replace('"', '')
             
-        return result
-    except Exception as e:
-        print(f"AI Analiz Hatası: {e}")
-        return None # Hata durumunda İngilizce atmaktansa hiç atmayalım.
+            # Başarılı cevap geldiyse döndür
+            if "SKIP" in result or len(result) < 5:
+                return None
+            return result
+            
+        except Exception as e:
+            # Bu model hata verdiyse (404 vb.) döngü bir sonraki modeli dener
+            print(f"⚠️ Model ({model_ismi}) hatası, yedek modele geçiliyor...")
+            continue
+            
+    # Hiçbir model çalışmazsa
+    print("❌ Tüm AI modelleri hata verdi.")
+    return None
 
 def haber_tara():
     salter = os.environ.get("BOT_DURUMU", "ACIK").upper()
     if salter == "KAPALI": return
 
-    # Arayüzden gelen sayı (varsayılan 1)
     try:
         limit = int(os.environ.get("HABER_SAYISI", "1"))
     except:
@@ -67,7 +74,7 @@ def haber_tara():
     for takim in takimlar:
         print(f"🌍 {takim} için analiz başladı ({limit} haber)...")
         
-        # Genişletilmiş arama sorgusu
+        # Arama sorgusu
         sorgu = urllib.parse.quote(f"{takim} transfer news")
         url = f"https://news.google.com/rss/search?q={sorgu}&hl=en-US&gl=US&ceid=US:en"
         
@@ -80,31 +87,27 @@ def haber_tara():
             items = root.findall('./channel/item')
 
             for item in items:
-                # Eğer istenen limit kadar paylaştıysak diğer takıma geç
                 if paylasilan_sayisi >= limit:
                     break
 
                 baslik = item.find('title').text
                 link = item.find('link').text
                 
-                # --- FİLTRE VE YAZIM AŞAMASI ---
+                # AI Analizi
                 tweet_metni = analyze_and_write(baslik, takim)
                 
-                # Eğer tweet_metni 'None' geldiyse, bu haber alakasızdır veya hata vardır. Atla.
                 if tweet_metni is None:
-                    print(f"❌ Alakasız veya hatalı haber elendi: {baslik}")
                     continue 
 
-                # Tweet Gönderimi
                 tweet_final = f"{tweet_metni}\n\n🔗 Kaynak: {link}"
                 twitter_client.create_tweet(text=tweet_final)
                 
                 print(f"✅ {takim} haberi Türkçe paylaşıldı.")
                 paylasilan_sayisi += 1
-                time.sleep(15) 
+                time.sleep(15)
                 
         except Exception as e:
-            print(f"⚠️ {takim} genel hata: {e}")
+            print(f"⚠️ {takim} ağ hatası: {e}")
 
 if __name__ == "__main__":
     haber_tara()
