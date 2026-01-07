@@ -6,13 +6,9 @@ from xml.etree import ElementTree
 import urllib.parse
 from google import genai
 
-# --- AI BAĞLANTISI ---
-# 404 hatasını önlemek için Client'ı en sade haliyle başlatıyoruz
-try:
-    client_ai = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
-except Exception as e:
-    print(f"❌ Gemini Client başlatılamadı: {e}")
-    client_ai = None
+# --- 2026 MODEL YAPILANDIRMASI ---
+# Gemini 2.5 Flash ücretsiz kota: Dakikada 5 istek.
+client_ai = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
 def baglan():
     return tweepy.Client(
@@ -23,11 +19,10 @@ def baglan():
     )
 
 def analyze_and_write(haber_basligi, takim):
-    """
-    Haber analizini yapar. 404 hatasını önlemek için model ismini
-    net bir şekilde 'gemini-1.5-flash' olarak kullanır.
-    """
-    if not client_ai:
+    """Kota dostu analiz fonksiyonu."""
+    
+    # 1. ÖN FİLTRE: Haber başlığında takım adı geçmiyorsa Gemini'yi yorma (Kota tasarrufu)
+    if takim.lower() not in haber_basligi.lower():
         return None
 
     prompt = f"""
@@ -35,27 +30,26 @@ def analyze_and_write(haber_basligi, takim):
     Haber: "{haber_basligi}"
     Bu haber gerçekten {takim} transferi/haberi mi?
     - Eğer değilse sadece 'SKIP' yaz.
-    - Eğer ilgiliyse, haberi Türkçeye çevir ve taraftarlar için heyecanlı, 
-      maksimum 200 karakterlik, emojili bir tweet yaz.
+    - Eğer ilgiliyse, haberi Türkçeye çevir ve taraftarlar için heyecanlı bir tweet yaz (max 200 karakter).
     """
     
     try:
-        # Yeni SDK'da en stabil model çağırma yöntemi
+        # 2026'nın güncel model ismi: gemini-2.5-flash
         response = client_ai.models.generate_content(
             model="gemini-2.5-flash", 
             contents=prompt
         )
         
         result = response.text.strip()
-        
         if "SKIP" in result or len(result) < 10:
             return None
             
         return result
 
     except Exception as e:
-        # Hata devam ederse burası detaylı bilgi verecek
-        print(f"⚠️ AI Analiz Hatası ({takim}): {e}")
+        print(f"⚠️ Gemini Kota/Hız Sınırı: {e}")
+        # Hata 429 ise biraz daha beklemesi için sinyal veriyoruz
+        time.sleep(35) 
         return None
 
 def haber_tara():
@@ -71,9 +65,8 @@ def haber_tara():
     twitter_client = baglan()
 
     for takim in takimlar:
-        print(f"🌍 {takim} taranıyor...")
+        print(f"🔄 {takim} inceleniyor...")
         sorgu = urllib.parse.quote(f"{takim} transfer news")
-        # Global arama
         url = f"https://news.google.com/rss/search?q={sorgu}&hl=en-US&gl=US&ceid=US:en"
         
         paylasilan_sayisi = 0
@@ -91,20 +84,28 @@ def haber_tara():
                 baslik = item.find('title').text
                 link = item.find('link').text
                 
+                # Gemini'ye sormadan önce bekle (Dakikada 5 sınırı için)
+                print("⏳ AI analizi için bekleniyor...")
+                time.sleep(15) 
+                
                 tweet_metni = analyze_and_write(baslik, takim)
                 
                 if tweet_metni:
-                    tweet_final = f"{tweet_metni}\n\n🔗 Kaynak: {link}"
                     try:
+                        tweet_final = f"{tweet_metni}\n\n🔗 {link}"
                         twitter_client.create_tweet(text=tweet_final)
-                        print(f"✅ {takim} Tweetlendi.")
+                        print(f"✅ {takim} paylaşıldı.")
                         paylasilan_sayisi += 1
+                        # Twitter limiti için bekle
                         time.sleep(20)
-                    except Exception as e:
-                        print(f"❌ Twitter Hatası: {e}")
+                    except Exception as te:
+                        if "429" in str(te):
+                            print("❌ Twitter günlük tweet sınırına ulaşıldı!")
+                            return # Twitter sınırı dolduysa botu tamamen durdur
+                        print(f"❌ Twitter Hatası: {te}")
                 
         except Exception as e:
-            print(f"⚠️ {takim} RSS Hatası: {e}")
+            print(f"⚠️ RSS Hatası ({takim}): {e}")
 
 if __name__ == "__main__":
     haber_tara()
