@@ -2,8 +2,8 @@ name: AI World Transfer Editor
 
 on:
   schedule:
-    - cron: '0 * * * *' # Her saat başı otomatik kontrol
-  workflow_dispatch: # Manuel çalıştırma
+    - cron: '0 * * * *'
+  workflow_dispatch:
     inputs:
       haber_sayisi:
         description: 'Her takım için kaç haber paylaşılsın?'
@@ -20,16 +20,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
+      # KRİTİK DEĞİŞİKLİK: Python 3.11 sürümüne geçtik
       - name: Set up Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
-      # DİKKAT: Hata veren 'google-genai' yerine stabil 'google-generativeai' kullanıyoruz
+      # KRİTİK DEĞİŞİKLİK: Yeni 'google-genai' kütüphanesi
       - name: Install dependencies
-        run: pip install tweepy requests google-generativeai
+        run: pip install tweepy requests google-genai
 
       - name: Run bot
         env:
@@ -39,6 +40,5 @@ jobs:
           TWITTER_ACCESS_TOKEN_SECRET: ${{ secrets.TWITTER_ACCESS_TOKEN_SECRET }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           BOT_DURUMU: ${{ secrets.BOT_DURUMU }}
-          # Kullanıcının seçtiği sayıyı koda iletiyoruz
           HABER_SAYISI: ${{ github.event.inputs.haber_sayisi || '1' }}
         run: python bot.py
