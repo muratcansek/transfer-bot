@@ -2,8 +2,14 @@ name: AI World Transfer Editor
 
 on:
   schedule:
-    - cron: '0 * * * *' # Her saat başı otomatik çalışır
-  workflow_dispatch: # Manuel çalıştırma butonu
+    - cron: '0 * * * *'
+  workflow_dispatch:
+    inputs:
+      haber_sayisi:
+        description: 'Kaç adet haber paylaşılsın?'
+        required: true
+        default: '1'
+        type: string # Buraya kullanıcı sayı yazacak
 
 jobs:
   build:
@@ -28,4 +34,6 @@ jobs:
           TWITTER_ACCESS_TOKEN_SECRET: ${{ secrets.TWITTER_ACCESS_TOKEN_SECRET }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           BOT_DURUMU: ${{ secrets.BOT_DURUMU }}
+          # Kullanıcının kutucuğa yazdığı sayıyı koda gönderiyoruz:
+          HABER_SAYISI: ${{ github.event.inputs.haber_sayisi || '1' }}
         run: python bot.py
