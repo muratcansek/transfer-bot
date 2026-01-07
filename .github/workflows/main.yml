@@ -1,20 +1,9 @@
-name: Transfer Bot Run
+name: AI Transfer Editor Bot
 
 on:
   schedule:
-    - cron: '*/30 * * * *' # Her 30 dakikada bir otomatik çalışır
-  workflow_dispatch: # Manuel çalıştırma butonu ve takım seçimi
-    inputs:
-      secilen_takim:
-        description: 'Hangi takım için haber aransın?'
-        required: true
-        default: 'Fenerbahçe'
-        type: choice
-        options:
-          - Fenerbahçe
-          - Galatasaray
-          - Beşiktaş
-          - Trabzonspor
+    - cron: '0 * * * *' # Her saat başı otomatik çalışır
+  workflow_dispatch: # Manuel çalıştırma imkanı
 
 jobs:
   build:
@@ -29,7 +18,7 @@ jobs:
           python-version: '3.9'
 
       - name: Install dependencies
-        run: pip install tweepy requests
+        run: pip install tweepy requests google-generativeai
 
       - name: Run bot
         env:
@@ -37,7 +26,6 @@ jobs:
           TWITTER_API_SECRET: ${{ secrets.TWITTER_API_SECRET }}
           TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
           TWITTER_ACCESS_TOKEN_SECRET: ${{ secrets.TWITTER_ACCESS_TOKEN_SECRET }}
-          TWITTER_BEARER_TOKEN: ${{ secrets.TWITTER_BEARER_TOKEN }}
-          SECILEN_TAKIM: ${{ github.event.inputs.secilen_takim || 'Fenerbahçe' }}
-          BOT_DURUMU: ${{ secrets.BOT_DURUMU }} # AÇ/KAPAT ŞALTERİ
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          BOT_DURUMU: ${{ secrets.BOT_DURUMU }}
         run: python bot.py
