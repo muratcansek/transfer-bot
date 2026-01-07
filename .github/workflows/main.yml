@@ -1,19 +1,18 @@
-name: AI World Transfer Editor
+name: AI World Transfer Editor 2026
 
 on:
   schedule:
-    - cron: '0 * * * *'
+    - cron: '0 */2 * * *' # Sınırları aşmamak için 2 saatte bir çalışması daha sağlıklıdır
   workflow_dispatch:
     inputs:
       haber_sayisi:
-        description: 'Her takım için kaç haber paylaşılsın?'
+        description: 'Her takım için kaç haber (Kota dostu: 1)'
         required: true
         default: '1'
         type: choice
         options: 
           - '1'
           - '2'
-          - '3'
 
 jobs:
   build:
