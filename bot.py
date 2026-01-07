@@ -4,11 +4,10 @@ import requests
 import time
 from xml.etree import ElementTree
 import urllib.parse
-import google.generativeai as genai
+from google import genai
 
-# --- YAPILANDIRMA ---
-genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
-ai_model = genai.GenerativeModel('gemini-1.5-flash')
+# --- YENİ GEMINI YAPILANDIRMASI ---
+client_ai = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
 def baglan():
     return tweepy.Client(
@@ -19,43 +18,46 @@ def baglan():
     )
 
 def ai_translate_and_edit(haber_basligi, takim):
-    """Gemini AI haberi Türkçeye çevirir ve bir spor editörü gibi yorumlar."""
+    """Yabancı haberleri Türkçeye çevirir ve bir editör gibi yorumlar."""
     prompt = f"""
-    Sen Türkiye'nin en iyi spor editörü ve çevirmenisin. 
+    Sen profesyonel bir Türk spor editörü ve çevirmenisin.
     Aşağıdaki haber başlığı yabancı bir dilde (İngilizce vb.) olabilir.
     
-    Görevin:
-    1. Haberi önce anla ve profesyonel bir Türkçeye çevir.
-    2. Çevirdiğin haberi {takim} taraftarları için heyecan verici bir tweet haline getir.
-    3. Maksimum 200 karakter kullan.
-    4. Spor jargonuna uygun emojiler ekle (🚨, ⏳, ✈️, ✍️ gibi).
+    Talimatlar:
+    1. Haberi önce doğru bir Türkçeye çevir.
+    2. Çevirdiğin haberi {takim} taraftarlarını heyecanlandıracak şekilde yorumla.
+    3. Maksimum 220 karakterlik, bol etkileşim alacak bir tweet haline getir.
+    4. Spor jargonuna uygun emojiler kullan.
     5. Sadece tweet metnini döndür.
 
     Haber Başlığı: {haber_basligi}
     """
     try:
-        response = ai_model.generate_content(prompt)
+        # Google-genai'nin en güncel metin üretim komutu
+        response = client_ai.models.generate_content(
+            model="gemini-1.5-flash",
+            contents=prompt
+        )
         return response.text.strip().replace('"', '')
     except Exception as e:
-        print(f"AI/Çeviri Hatası: {e}")
+        print(f"AI İşlem Hatası: {e}")
         return haber_basligi
 
 def haber_tara():
+    # Şalter Kontrolü
     salter = os.environ.get("BOT_DURUMU", "ACIK").upper()
     if salter == "KAPALI":
-        print("⛔ Bot kapalı modda.")
+        print("⛔ Şalter Kapalı: Bot uyku modunda.")
         return
 
-    # 4 Büyükler
     takimlar = ["Fenerbahçe", "Galatasaray", "Beşiktaş", "Trabzonspor"]
-    client = baglan()
+    twitter_client = baglan()
 
     for takim in takimlar:
-        print(f"🌍 {takim} için dünya basını (İngilizce kaynaklar) taranıyor...")
+        print(f"🌍 {takim} için dünya basını taranıyor...")
         
-        # İngilizce transfer haberlerini çekmek için sorguyu güncelledik
+        # Global Google News üzerinden İngilizce aramalar (Sorgu: Takım + transfer haberleri)
         sorgu = urllib.parse.quote(f"{takim} transfer news rumours")
-        # Global Google News (İngilizce) kaynağından çekiyoruz
         url = f"https://news.google.com/rss/search?q={sorgu}&hl=en-US&gl=US&ceid=US:en"
         
         try:
@@ -63,27 +65,29 @@ def haber_tara():
             response = requests.get(url, headers=headers, timeout=10)
             root = ElementTree.fromstring(response.content)
             
-            # En güncel global haberi al
+            # Kaynaktaki ilk (en yeni) haberi al
             item = root.find('./channel/item')
             
             if item is not None:
                 baslik = item.find('title').text
                 link = item.find('link').text
                 
-                # Gemini ile Çeviri + Editör Yorumu
+                # AI hem çeviri yapar hem editör dokunuşu ekler
                 tweet_metni = ai_translate_and_edit(baslik, takim)
                 
-                tweet_final = f"{tweet_metni}\n\n🔗 Kaynak: {link}"
+                # Tweeti Oluştur ve Gönder
+                tweet_final = f"{tweet_metni}\n\n🔗 Detay: {link}"
+                twitter_client.create_tweet(text=tweet_final)
                 
-                client.create_tweet(text=tweet_final)
-                print(f"✅ {takim} haberi çevrildi ve tweetlendi.")
+                print(f"✅ {takim} tweeti başarıyla atıldı.")
                 
-                time.sleep(15) # Twitter sınırı için bekleme
+                # Twitter sınırlarına takılmamak için 15 saniye bekle
+                time.sleep(15)
             else:
-                print(f"❓ {takim} için dünya basınında yeni haber yok.")
+                print(f"❓ {takim} için güncel bir haber bulunamadı.")
                 
         except Exception as e:
-            print(f"⚠️ {takim} taranırken hata: {e}")
+            print(f"⚠️ {takim} taranırken bir aksaklık oldu: {e}")
 
 if __name__ == "__main__":
     haber_tara()
