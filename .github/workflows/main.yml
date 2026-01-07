@@ -20,15 +20,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      # KRİTİK DEĞİŞİKLİK: Python 3.11 sürümüne geçtik
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
 
-      # KRİTİK DEĞİŞİKLİK: Yeni 'google-genai' kütüphanesi
       - name: Install dependencies
         run: pip install tweepy requests google-genai
 
