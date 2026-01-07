@@ -4,10 +4,13 @@ import requests
 import time
 from xml.etree import ElementTree
 import urllib.parse
-from google import genai
+import google.generativeai as genai # Eski dostumuz geri döndü
 
-# --- AI YAPILANDIRMASI ---
-client_ai = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+# --- AI YAPILANDIRMASI (STABİL VERSİYON) ---
+genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+
+# Model tanımlamasını burada yapıyoruz, en güncel flash modelini seçiyoruz
+model = genai.GenerativeModel('gemini-1.5-flash')
 
 def baglan():
     return tweepy.Client(
@@ -19,45 +22,33 @@ def baglan():
 
 def analyze_and_write(haber_basligi, takim):
     """
-    Haberi analiz eder ve Türkçe tweet yazar.
-    404 hatasını önlemek için yedekli model sistemi kullanır.
+    Haber analizi ve Türkçe çeviri yapar.
     """
     prompt = f"""
-    Görevin bir editör ve filtreleyici olmak.
-    Haber Başlığı (İngilizce olabilir): "{haber_basligi}"
+    Sen bir spor editörüsün.
+    Haber Başlığı: "{haber_basligi}"
     Hedef Takım: {takim}
 
-    Adımlar:
-    1. Bu haberin ana konusu gerçekten {takim} veya {takim}'ın bir oyuncusu/transferi mi?
-    2. Eğer haber başka bir takım hakkındaysa (ve {takim} sadece yan unsur ise) cevap olarak sadece "SKIP" yaz.
-    3. Eğer haber {takim} hakkındaysa: Bunu mükemmel bir Türkçe ile, taraftarı heyecanlandıran, emojili bir tweet metnine çevir.
-    4. KESİNLİKLE İngilizce kelime kullanma. Sadece Türkçe tweet metnini ver.
+    Kurallar:
+    1. Bu haber {takim} ile ilgili mi? Değilse sadece "SKIP" yaz.
+    2. İlgiliyse, haberi Türkçeye çevir ve {takim} taraftarı için heyecanlı bir tweet yaz.
+    3. İngilizce tek bir kelime bile kullanma.
+    4. Maksimum 200 karakter.
     """
     
-    # Denenecek modeller listesi (Biri çalışmazsa diğerine geçer)
-    modeller = ["gemini-1.5-flash-002", "gemini-1.5-flash-001", "gemini-1.5-pro"]
-    
-    for model_ismi in modeller:
-        try:
-            response = client_ai.models.generate_content(
-                model=model_ismi,
-                contents=prompt
-            )
-            result = response.text.strip().replace('"', '')
+    try:
+        # Eski kütüphanenin basit kullanım şekli
+        response = model.generate_content(prompt)
+        result = response.text.strip().replace('"', '')
+        
+        if "SKIP" in result or len(result) < 5:
+            return None
+        return result
             
-            # Başarılı cevap geldiyse döndür
-            if "SKIP" in result or len(result) < 5:
-                return None
-            return result
-            
-        except Exception as e:
-            # Bu model hata verdiyse (404 vb.) döngü bir sonraki modeli dener
-            print(f"⚠️ Model ({model_ismi}) hatası, yedek modele geçiliyor...")
-            continue
-            
-    # Hiçbir model çalışmazsa
-    print("❌ Tüm AI modelleri hata verdi.")
-    return None
+    except Exception as e:
+        # Hata detayını tam görelim
+        print(f"❌ AI Hatası (Detaylı): {e}")
+        return None
 
 def haber_tara():
     salter = os.environ.get("BOT_DURUMU", "ACIK").upper()
@@ -72,9 +63,9 @@ def haber_tara():
     twitter_client = baglan()
 
     for takim in takimlar:
-        print(f"🌍 {takim} için analiz başladı ({limit} haber)...")
+        print(f"🌍 {takim} analiz ediliyor...")
         
-        # Arama sorgusu
+        # İngilizce kaynakları tara
         sorgu = urllib.parse.quote(f"{takim} transfer news")
         url = f"https://news.google.com/rss/search?q={sorgu}&hl=en-US&gl=US&ceid=US:en"
         
@@ -93,21 +84,19 @@ def haber_tara():
                 baslik = item.find('title').text
                 link = item.find('link').text
                 
-                # AI Analizi
                 tweet_metni = analyze_and_write(baslik, takim)
                 
-                if tweet_metni is None:
-                    continue 
-
-                tweet_final = f"{tweet_metni}\n\n🔗 Kaynak: {link}"
-                twitter_client.create_tweet(text=tweet_final)
-                
-                print(f"✅ {takim} haberi Türkçe paylaşıldı.")
-                paylasilan_sayisi += 1
-                time.sleep(15)
+                if tweet_metni:
+                    tweet_final = f"{tweet_metni}\n\n🔗 Kaynak: {link}"
+                    twitter_client.create_tweet(text=tweet_final)
+                    print(f"✅ {takim}: {tweet_metni[:30]}...")
+                    paylasilan_sayisi += 1
+                    time.sleep(15)
+                else:
+                    print(f"⏭️ {takim} için bu haber geçildi (Alakasız/AI Skip).")
                 
         except Exception as e:
-            print(f"⚠️ {takim} ağ hatası: {e}")
+            print(f"⚠️ {takim} bağlantı hatası: {e}")
 
 if __name__ == "__main__":
     haber_tara()
