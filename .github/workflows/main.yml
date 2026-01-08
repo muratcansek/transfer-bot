@@ -23,8 +23,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # Eğer bot 15 dakikadan fazla sürerse otomatik durdur (Güvenlik önlemi)
-    timeout-minutes: 15
+    # Sınırı 30 dakikaya çıkararak "Canceled" hatasının önüne geçiyoruz
+    timeout-minutes: 30
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
