@@ -26,7 +26,7 @@ def analyze_and_write(haber_basligi, takim):
     prompt = f"Sen bir spor editörüsün. Sadece Türkçe konuş. Haber: '{haber_basligi}'. Bu gerçekten {takim} haberi mi? Değilse 'SKIP' yaz, ilgiliyse heyecanlı bir Türkçe tweet yaz."
     
     try:
-        response = client_ai.models.generate_content(model="gemini-1.5-flash", contents=prompt)
+        response = client_ai.models.generate_content(model="gemini-2.5-flash", contents=prompt)
         result = response.text.strip()
         if "SKIP" in result or len(result) < 10: return None
         return result
