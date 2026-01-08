@@ -5,9 +5,8 @@ import time
 from xml.etree import ElementTree
 import urllib.parse
 from google import genai
-from google.genai import errors # Hata yakalamak için gerekli
 
-# --- 2026 GÜNCEL YAPILANDIRMASI ---
+# --- 2026 YAPILANDIRMASI ---
 client_ai = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
 def baglan():
@@ -18,39 +17,22 @@ def baglan():
         access_token_secret=os.environ.get("TWITTER_ACCESS_TOKEN_SECRET")
     )
 
-def analyze_and_write(haber_basligi, takim, deneme_sayisi=0):
-    """Kota dostu ve hata durumunda bekleyip tekrar deneyen analiz fonksiyonu."""
+def analyze_and_write(haber_basligi, takim):
+    """Kota dolduğunda beklemek yerine hata döndüren hızlı analiz."""
+    prompt = f"Sen bir spor editörüsün. Haber: '{haber_basligi}'. Bu {takim} transfer haberi mi? Öyleyse Türkçe tweet yaz, değilse 'SKIP' yaz."
     
-    if deneme_sayisi > 2: # En fazla 2 kez tekrar dene
-        return None
-
-    prompt = f"Sen bir spor editörüsün. Haber: '{haber_basligi}'. Bu gerçekten {takim} transfer haberi mi? Değilse 'SKIP', ilgiliyse Türkçe tweet yaz."
-    
-    # Denenecek model listesi (Flash dolarsa Lite sürümünü dene)
-    modeller = ["gemini-2.0-flash", "gemini-2.0-flash-lite"]
-
     try:
-        # Önce ana modeli dene
         response = client_ai.models.generate_content(
-            model=modeller[0], 
+            model="gemini-2.0-flash", 
             contents=prompt
         )
         result = response.text.strip()
         return None if "SKIP" in result or len(result) < 10 else result
-
     except Exception as e:
-        hata_mesaji = str(e)
-        if "429" in hata_mesaji or "RESOURCE_EXHAUSTED" in hata_mesaji:
-            print(f"⏳ Kota doldu, 40 saniye bekleniyor... (Deneme: {deneme_sayisi + 1})")
-            time.sleep(40) # Hata mesajındaki 'retry in 37s' uyarısına uyuyoruz
-            return analyze_and_write(haber_basligi, takim, deneme_sayisi + 1)
-        
-        elif "503" in hata_mesaji:
-            print("⚠️ Model meşgul, 10 saniye sonra tekrar denenecek...")
-            time.sleep(10)
-            return analyze_and_write(haber_basligi, takim, deneme_sayisi + 1)
-        
-        print(f"⚠️ Beklenmedik AI Hatası: {e}")
+        if "429" in str(e):
+            print(f"🛑 KOTA DOLU: {takim} için bu haber atlanıyor.")
+        else:
+            print(f"⚠️ AI Hatası: {e}")
         return None
 
 def haber_tara():
@@ -58,11 +40,7 @@ def haber_tara():
     test_modu = os.environ.get("TEST_MODU", "Ön İzleme (Tweet Atma)")
     if salter == "KAPALI": return
 
-    try:
-        limit = int(os.environ.get("HABER_SAYISI", "1"))
-    except:
-        limit = 1
-
+    limit = int(os.environ.get("HABER_SAYISI", "1"))
     takimlar = ["Fenerbahçe", "Galatasaray", "Beşiktaş", "Trabzonspor"]
     twitter_client = baglan() if test_modu == "Gerçekten Paylaş" else None
 
@@ -74,7 +52,8 @@ def haber_tara():
         try:
             response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
             root = ElementTree.fromstring(response.content)
-            items = root.findall('./channel/item')[:8] # Sadece en güncel 8 habere bak
+            # Sadece en güncel 5 habere bakarak süreyi kısaltıyoruz
+            items = root.findall('./channel/item')[:5]
 
             paylasilan_sayisi = 0
             for item in items:
@@ -83,31 +62,28 @@ def haber_tara():
                 baslik = item.find('title').text
                 link = item.find('link').text
                 
-                # ÖN FİLTRE: Takım adı geçmiyorsa API'yi hiç çağırma (KOTAYI KORUR)
+                # ÖN FİLTRE: Takım ismi geçmiyorsa AI'yı hiç çağırma
                 if takim.lower() not in baslik.lower():
                     continue
                 
-                # AI'yı çağırmadan önce her seferinde kısa bir mola (Dakikalık kotayı korur)
+                # Kota sağlığı için her AI isteği öncesi kısa bir mola
                 time.sleep(5)
                 
                 tweet_metni = analyze_and_write(baslik, takim)
                 
                 if tweet_metni:
                     tweet_final = f"{tweet_metni}\n\n🔗 {link}"
-                    
                     if twitter_client:
                         twitter_client.create_tweet(text=tweet_final)
-                        print(f"✅ Paylaşıldı: {takim}")
+                        print(f"✅ {takim} paylaşıldı.")
                     else:
-                        print(f"\n--- ÖN İZLEME ({takim}) ---\n{tweet_final}\n{'-'*20}")
+                        print(f"\n--- ÖN İZLEME ({takim}) ---\n{tweet_final}\n")
                     
                     paylasilan_sayisi += 1
-                    # Paylaşımdan sonra uzun mola (Kotayı dengeler)
-                    print("😴 Kota sağlığı için 30 saniye dinleniliyor...")
-                    time.sleep(30)
+                    time.sleep(10) # Paylaşım sonrası kısa mola
                 
         except Exception as e:
-            print(f"⚠️ Hata: {e}")
+            print(f"⚠️ RSS Hatası: {e}")
 
 if __name__ == "__main__":
     haber_tara()
