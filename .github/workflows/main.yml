@@ -10,11 +10,9 @@ on:
         required: true
         default: '1'
         type: choice
-        options: 
-          - '1'
-          - '2'
+        options: ['1', '2']
       test_modu:
-        description: 'Twittera gönderilsin mi?'
+        description: 'Mod Seçimi'
         required: true
         default: 'Ön İzleme (Tweet Atma)'
         type: choice
@@ -25,6 +23,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Eğer bot 15 dakikadan fazla sürerse otomatik durdur (Güvenlik önlemi)
+    timeout-minutes: 15
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
